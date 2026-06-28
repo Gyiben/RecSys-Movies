@@ -208,7 +208,7 @@ const STARS = (r)=>'★'.repeat(Math.round(r))+'☆'.repeat(5-Math.round(r));
 // ───────── init ─────────
 async function init(){
   META = await api('/api/meta');
-  $('#method').innerHTML = META.methods.map(m=>`<option ${m==='Matrix Factorisation (SVD)'?'selected':''}>${m}</option>`).join('');
+  $('#method').innerHTML = META.methods.map(m=>`<option ${m==='Popularity'?'selected':''}>${m}</option>`).join('');
   $('#user').innerHTML  = META.users.map(u=>`<option>${u}</option>`).join('');
 
   const badge=$('#poster-badge'); badge.classList.remove('hidden');
