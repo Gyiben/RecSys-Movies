@@ -12,5 +12,8 @@ __pycache__/
 *.log
 .playwright-mcp/
 
+# Office temp/lock files
+~$*
+
 # Note: .eval_cache.json IS committed — it ships the precomputed evaluation so
 # the 512 MB server never has to fit all six models at runtime.
