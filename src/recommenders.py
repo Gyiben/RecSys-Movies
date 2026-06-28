@@ -129,13 +129,14 @@ class UserCF(Recommender):
         self.k = k
         self.min_support = min_support
         M = build_matrix(ratings)                    # users x items, NaN missing
-        self.M = M
-        self.user_mean = M.mean(axis=1)              # r̄_u
-        self.centered = M.sub(self.user_mean, axis=0).fillna(0.0)
+        self.user_mean = M.mean(axis=1)              # r̄_u (float64 for a stable mean)
+        # float32 halves the dense matrices — keeps the 512 MB box happy
+        self.centered = M.sub(self.user_mean, axis=0).fillna(0.0).astype(np.float32)
         self.rated_mask = M.notna()                  # who actually rated what
         sim = cosine_similarity(self.centered.values)
         np.fill_diagonal(sim, 0.0)                    # a user is not its own neighbour
         self.sim = pd.DataFrame(sim, index=M.index, columns=M.index)
+        self.M = M.astype(np.float32)                # stored only for its index/columns
         return self
 
     def predict_all(self, user_id):
@@ -170,7 +171,7 @@ class ItemCF(Recommender):
         super().fit(ratings, movies, tags)
         self.min_support = min_support
         M = build_matrix(ratings)
-        self.M = M
+        self.M = M.astype(np.float32)                          # compact; for index + lookups
         self.items = M.columns                                 # movieId per matrix column
         self.item_pos = {mid: i for i, mid in enumerate(self.items)}
         user_mean = M.mean(axis=1)
@@ -287,14 +288,14 @@ class SVDRecommender(Recommender):
     def fit(self, ratings, movies, tags=None, k=50):
         super().fit(ratings, movies, tags)
         M = build_matrix(ratings)
-        self.M = M
         self.user_mean = M.mean(axis=1)
-        centered = M.sub(self.user_mean, axis=0).fillna(0.0)
+        centered = M.sub(self.user_mean, axis=0).fillna(0.0).astype(np.float32)
         k = min(k, min(centered.shape) - 1)
         self.svd = TruncatedSVD(n_components=k, random_state=42)
         U = self.svd.fit_transform(csr_matrix(centered.values))     # users x k
-        recon = U @ self.svd.components_                            # users x items
+        recon = (U @ self.svd.components_).astype(np.float32)       # users x items
         self.recon = pd.DataFrame(recon, index=M.index, columns=M.columns)
+        self.M = M.astype(np.float32)                               # stored for its index
         return self
 
     def predict_all(self, user_id):

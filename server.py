@@ -8,7 +8,7 @@ Run:  uv run uvicorn server:app --reload
 Then: http://127.0.0.1:8000
 """
 
-import threading
+import collections
 import time
 from pathlib import Path
 
@@ -39,18 +39,23 @@ app = FastAPI(title="Movie Recommender")
 
 ratings, movies, tags = load_data()
 posters = PosterService()
-_models = {}  # method name -> fitted model (existing-user mode, full data)
 
-# Warm the (slow) evaluation cache in the background so the Insights tab is ready
-# by the time anyone opens it. No-op once .eval_cache.json exists.
-threading.Thread(target=get_evaluation, daemon=True).start()
+# LRU cache of fitted models. Each CF/SVD model pins a full rating matrix, so on a
+# 512 MB box we keep only the few most-recent rather than all six at once.
+_models = collections.OrderedDict()
+_MODEL_CACHE = 2
 
 
 def get_model(method):
     """Fit and cache a model on the full dataset (existing-user mode)."""
-    if method not in _models:
-        _models[method] = all_recommenders()[method]().fit(ratings, movies, tags)
-    return _models[method]
+    if method in _models:
+        _models.move_to_end(method)
+        return _models[method]
+    model = all_recommenders()[method]().fit(ratings, movies, tags)
+    _models[method] = model
+    while len(_models) > _MODEL_CACHE:
+        _models.popitem(last=False)          # evict least-recently-used
+    return model
 
 
 def enrich(recs, method, model=None, user_id=None):

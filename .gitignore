@@ -9,6 +9,8 @@ __pycache__/
 
 # Runtime artifacts
 .poster_cache.json
-.eval_cache.json
 *.log
 .playwright-mcp/
+
+# Note: .eval_cache.json IS committed — it ships the precomputed evaluation so
+# the 512 MB server never has to fit all six models at runtime.
