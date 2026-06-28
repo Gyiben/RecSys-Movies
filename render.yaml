@@ -1,0 +1,15 @@
+# Render deployment blueprint.
+# Deploy: push this folder to its own GitHub repo, then in Render:
+# New > Blueprint > pick the repo. Render reads this file automatically.
+# Set TMDB_API_KEY in the service's Environment tab for real movie posters
+# (the app works without it, falling back to styled text tiles).
+services:
+  - type: web
+    name: cinema-recommender
+    runtime: python
+    plan: free                      # 512 MB RAM — fits now that ItemCF is sparse float32
+    buildCommand: pip install uv && uv sync
+    startCommand: uv run uvicorn server:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: TMDB_API_KEY
+        sync: false                 # set this secret in the dashboard, not in git

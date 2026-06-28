@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CineMa — Movie Recommender</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+  tailwind.config = {
+    theme: { extend: {
+      colors: {
+        ink:   { 900:'#08080d', 800:'#101019', 700:'#181824', 600:'#23233440' },
+        accent:{ DEFAULT:'#e50914', 400:'#ff3d47', glow:'rgba(229,9,20,.5)' },
+        gold:  '#f5c518',
+      },
+      fontFamily: { display:['"Bebas Neue"','sans-serif'] },
+    }},
+  };
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  body { font-family:'Inter',sans-serif; background:#08080d; }
+  .font-display { font-family:'Bebas Neue',sans-serif; letter-spacing:.03em; }
+
+  /* form controls in the top bar */
+  select, input[type=range] { outline:none; }
+  select { background:#181824; }
+  select option { background:#101019; }
+  input[type=range] { -webkit-appearance:none; appearance:none; height:4px; border-radius:999px; background:#2b2b3d; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:15px; height:15px; border-radius:50%;
+    background:#fff; cursor:pointer; border:3px solid #e50914; box-shadow:0 0 0 3px rgba(229,9,20,.2); }
+
+  /* hero */
+  .hero-bg { background-size:cover; background-position:center 20%; }
+  .hero-veil { background:
+      linear-gradient(90deg, #08080d 0%, rgba(8,8,13,.85) 38%, rgba(8,8,13,.2) 75%, rgba(8,8,13,.55) 100%),
+      linear-gradient(0deg, #08080d 2%, transparent 55%); }
+
+  /* carousels */
+  .rail { scroll-snap-type:x mandatory; scrollbar-width:none; }
+  .rail::-webkit-scrollbar { display:none; }
+  .rail > * { scroll-snap-align:start; }
+  .arrow { transition:opacity .2s; }
+  .row:hover .arrow { opacity:1; }
+
+  .card { transition:transform .25s cubic-bezier(.2,.7,.3,1), box-shadow .25s; }
+  .card:hover { transform:scale(1.07); z-index:10; box-shadow:0 20px 45px -12px rgba(229,9,20,.5); }
+  .poster-fallback { background:linear-gradient(150deg,#1c1c2b 0%,#2a1830 55%,#3a1020 100%); }
+  .shimmer { background:linear-gradient(100deg,#13131d 30%,#1e1e2c 50%,#13131d 70%); background-size:200% 100%; animation:sh 1.3s infinite linear; }
+  @keyframes sh { from{background-position:200% 0} to{background-position:-200% 0} }
+  .fade { animation:fi .5s ease both; } @keyframes fi { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:none} }
+
+  .seg-active { background:#e50914; color:#fff; box-shadow:0 4px 14px -4px rgba(229,9,20,.7); }
+  .glass { background:rgba(16,16,25,.72); backdrop-filter:blur(16px); }
+  .line-clamp-2 { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+</style>
+</head>
+<body class="text-slate-200 min-h-screen">
+
+  <!-- ───────── Top bar ───────── -->
+  <header class="fixed top-0 inset-x-0 z-40 glass border-b border-white/5">
+    <div class="max-w-[1600px] mx-auto px-5 h-16 flex items-center gap-4">
+      <div class="flex items-center gap-2.5 shrink-0">
+        <div class="w-9 h-9 rounded-lg bg-accent grid place-items-center text-lg shadow-lg shadow-accent-glow">🎬</div>
+        <h1 class="font-display text-2xl leading-none hidden sm:block">Cine<span class="text-accent-400">Ma</span></h1>
+      </div>
+
+      <!-- Tab toggle -->
+      <div class="flex p-0.5 bg-ink-700 rounded-lg text-xs shrink-0">
+        <button data-tab="discover" class="tab-btn seg-active rounded-md px-3 py-1.5 font-medium">Discover</button>
+        <button data-tab="insights" class="tab-btn rounded-md px-3 py-1.5 font-medium text-slate-400">Insights</button>
+      </div>
+
+      <div class="h-7 w-px bg-white/10 hidden md:block"></div>
+
+      <!-- Method -->
+      <label class="flex items-center gap-2 text-sm">
+        <span class="text-slate-500 hidden lg:inline text-xs uppercase tracking-wider">Model</span>
+        <select id="method" class="bg-ink-700 border border-white/10 rounded-lg px-2.5 py-1.5 text-sm focus:border-accent"></select>
+      </label>
+
+      <!-- Count -->
+      <label class="flex items-center gap-2 text-sm">
+        <span class="text-slate-500 text-xs uppercase tracking-wider hidden lg:inline">Count</span>
+        <input id="n" type="range" min="5" max="20" value="12" class="w-20">
+        <span id="n-val" class="font-display text-xl text-accent-400 w-5">12</span>
+      </label>
+
+      <!-- Mode -->
+      <div class="hidden sm:flex p-0.5 bg-ink-700 rounded-lg text-xs">
+        <button data-mode="existing" class="mode-btn seg-active rounded-md px-3 py-1.5 font-medium">Existing</button>
+        <button data-mode="coldstart" class="mode-btn rounded-md px-3 py-1.5 font-medium text-slate-400">Cold start</button>
+      </div>
+
+      <!-- User (existing) -->
+      <label id="user-wrap" class="flex items-center gap-2 text-sm">
+        <span class="text-slate-500 text-xs uppercase tracking-wider hidden lg:inline">User</span>
+        <select id="user" class="bg-ink-700 border border-white/10 rounded-lg px-2.5 py-1.5 text-sm focus:border-accent max-w-[90px]"></select>
+      </label>
+
+      <!-- Rate films (cold start) -->
+      <div id="rate-wrap" class="relative hidden">
+        <button id="rate-toggle" class="bg-ink-700 border border-white/10 rounded-lg px-3 py-1.5 text-sm hover:border-accent">
+          🎞️ Rate films <span id="pick-count" class="text-accent-400 font-semibold"></span>
+        </button>
+        <!-- popover -->
+        <div id="rate-pop" class="hidden absolute right-0 mt-2 w-80 glass border border-white/10 rounded-2xl p-4 shadow-2xl space-y-3">
+          <p class="text-xs text-slate-400 leading-relaxed">Rate a few films you've seen. We build a brand-new profile on the fly — the cold-start problem.</p>
+          <input id="movie-search" type="text" placeholder="Search popular films…" class="w-full bg-ink-700 border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-accent">
+          <div id="movie-options" class="max-h-40 overflow-y-auto space-y-0.5 pr-1"></div>
+          <div id="picked-list" class="space-y-2 max-h-44 overflow-y-auto"></div>
+        </div>
+      </div>
+
+      <button id="go" class="ml-auto bg-accent hover:bg-accent-400 active:scale-95 transition rounded-lg px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-accent-glow disabled:opacity-40 disabled:shadow-none">
+        ✨ Recommend
+      </button>
+      <div id="poster-badge" class="hidden xl:flex items-center gap-1.5 text-[11px] text-slate-400 shrink-0"></div>
+    </div>
+  </header>
+
+  <!-- ═════════ DISCOVER VIEW ═════════ -->
+  <div id="view-discover">
+
+  <!-- ───────── Hero ───────── -->
+  <section id="hero" class="relative h-[78vh] min-h-[520px] w-full overflow-hidden">
+    <div id="hero-bg" class="hero-bg absolute inset-0 transition-[background-image] duration-700"></div>
+    <div class="hero-veil absolute inset-0"></div>
+    <div class="relative h-full max-w-[1600px] mx-auto px-6 sm:px-10 flex flex-col justify-end pb-16">
+      <div id="hero-content" class="max-w-2xl space-y-4"></div>
+    </div>
+  </section>
+
+  <!-- ───────── Rows ───────── -->
+  <main id="rows" class="max-w-[1600px] mx-auto px-6 sm:px-10 -mt-12 relative z-10 pb-20 space-y-9"></main>
+
+  </div><!-- /view-discover -->
+
+  <!-- ═════════ INSIGHTS VIEW ═════════ -->
+  <div id="view-insights" class="hidden max-w-[1600px] mx-auto px-6 sm:px-10 pt-24 pb-20 space-y-10">
+
+    <!-- Dataset summary -->
+    <section>
+      <h2 class="font-display text-4xl text-white mb-1">The dataset</h2>
+      <p class="text-sm text-slate-400 mb-5">MovieLens Latest Small — what the six models learn from.</p>
+      <div id="eda-cards" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3"></div>
+    </section>
+
+    <!-- EDA charts -->
+    <section class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <div class="bg-ink-800 border border-white/5 rounded-2xl p-5">
+        <h3 class="text-sm font-semibold mb-1">Rating distribution</h3>
+        <p class="text-xs text-slate-500 mb-3">Users lean positive — a known bias.</p>
+        <canvas id="chart-ratings" height="200"></canvas>
+      </div>
+      <div class="bg-ink-800 border border-white/5 rounded-2xl p-5">
+        <h3 class="text-sm font-semibold mb-1">The long tail</h3>
+        <p id="tail-note" class="text-xs text-slate-500 mb-3">A few films get most of the ratings.</p>
+        <canvas id="chart-tail" height="200"></canvas>
+      </div>
+      <div class="bg-ink-800 border border-white/5 rounded-2xl p-5">
+        <h3 class="text-sm font-semibold mb-1">Most common genres</h3>
+        <p class="text-xs text-slate-500 mb-3">Genre mix across the catalogue.</p>
+        <canvas id="chart-genres" height="200"></canvas>
+      </div>
+    </section>
+
+    <!-- Evaluation -->
+    <section>
+      <h2 class="font-display text-4xl text-white mb-1">How the models compare</h2>
+      <p id="eval-sub" class="text-sm text-slate-400 mb-5">Temporal split: each user's most recent 20% held out.</p>
+
+      <div id="metrics-loading" class="hidden text-center py-16 text-slate-400">
+        <div class="inline-block w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin"></div>
+        <p class="mt-3 text-sm">Crunching the evaluation… (first load only)</p>
+      </div>
+
+      <div id="metrics-body" class="hidden grid grid-cols-1 lg:grid-cols-[420px_1fr] gap-6">
+        <!-- radar -->
+        <div class="bg-ink-800 border border-white/5 rounded-2xl p-5">
+          <h3 class="text-sm font-semibold mb-1">Trade-off radar</h3>
+          <p id="radar-sub" class="text-xs text-slate-500 mb-3"></p>
+          <canvas id="chart-radar" height="300"></canvas>
+          <p class="text-[11px] text-slate-500 mt-3">Each axis min-max scaled across all models, so 1.0 = best-in-class on that metric. RMSE/MAE are accuracy-only and shown in the table.</p>
+        </div>
+        <!-- table -->
+        <div class="bg-ink-800 border border-white/5 rounded-2xl p-5 overflow-x-auto">
+          <h3 class="text-sm font-semibold mb-3">Full metrics</h3>
+          <table class="w-full text-sm" id="metrics-table"></table>
+          <p class="text-[11px] text-slate-500 mt-3">↑ higher is better for all columns except RMSE/MAE (↓). Ranking-only models have no RMSE/MAE.</p>
+        </div>
+      </div>
+    </section>
+  </div><!-- /view-insights -->
+
+<script>
+const $ = (s)=>document.querySelector(s);
+const api = (p,o)=>fetch(p,o).then(r=>r.json());
+
+let META=null, MODE='existing', POPULAR=[], TRENDING=[];
+let TAB='discover', EDA=null, METRICS=null;
+const CHARTS={};
+const picks = new Map();   // movieId -> {title, rating}
+const STARS = (r)=>'★'.repeat(Math.round(r))+'☆'.repeat(5-Math.round(r));
+
+// ───────── init ─────────
+async function init(){
+  META = await api('/api/meta');
+  $('#method').innerHTML = META.methods.map(m=>`<option ${m==='Matrix Factorisation (SVD)'?'selected':''}>${m}</option>`).join('');
+  $('#user').innerHTML  = META.users.map(u=>`<option>${u}</option>`).join('');
+
+  const badge=$('#poster-badge'); badge.classList.remove('hidden');
+  badge.innerHTML = META.postersEnabled
+    ? '<span class="w-2 h-2 rounded-full bg-emerald-400"></span> TMDb posters'
+    : '<span class="w-2 h-2 rounded-full bg-slate-500"></span> Text tiles';
+
+  $('#method').onchange = ()=>{ if(MODE==='existing') run(); if(TAB==='insights' && METRICS) renderMetrics(); };
+  $('#n').oninput  = e=>$('#n-val').textContent=e.target.value;
+  $('#n').onchange = ()=>{ if(MODE==='existing') run(); };
+  $('#user').onchange = ()=>{ if(MODE==='existing'){ loadProfile(); run(); } };
+  $('#go').onclick = run;
+  document.querySelectorAll('.mode-btn').forEach(b=>b.onclick=()=>setMode(b.dataset.mode));
+  document.querySelectorAll('.tab-btn').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));
+
+  // cold-start popover. Clicks inside re-render the list (detaching the target),
+  // so instead of a contains() check we just stop inner clicks from bubbling to
+  // the document close-handler. Outside clicks still close it.
+  $('#rate-toggle').onclick = e=>{ e.stopPropagation(); $('#rate-pop').classList.toggle('hidden'); };
+  $('#rate-pop').addEventListener('click', e=>e.stopPropagation());
+  document.addEventListener('click', ()=>$('#rate-pop').classList.add('hidden'));
+  $('#movie-search').oninput = e=>renderOptions(e.target.value);
+
+  TRENDING = await api('/api/popular?limit=24');
+  POPULAR  = TRENDING;
+  renderOptions('');
+  loadProfile();
+  run();
+}
+
+function setMode(mode){
+  MODE=mode;
+  document.querySelectorAll('.mode-btn').forEach(b=>{
+    const on=b.dataset.mode===mode;
+    b.classList.toggle('seg-active',on); b.classList.toggle('text-slate-400',!on);
+  });
+  $('#user-wrap').classList.toggle('hidden', mode!=='existing');
+  $('#rate-wrap').classList.toggle('hidden', mode!=='coldstart');
+  if(mode==='existing'){ loadProfile(); run(); }
+  syncGo();
+}
+
+// ───────── cold-start picker ─────────
+function renderOptions(q){
+  q=q.toLowerCase();
+  $('#movie-options').innerHTML = POPULAR.filter(m=>m.title.toLowerCase().includes(q)).map(m=>
+    `<button class="opt w-full text-left text-sm px-2.5 py-1.5 rounded-lg hover:bg-ink-700 flex justify-between items-center ${picks.has(m.movieId)?'text-accent-400':'text-slate-300'}" data-id="${m.movieId}">
+       <span class="truncate">${m.title}</span>${picks.has(m.movieId)?'<span>✓</span>':'<span class="text-slate-600">+</span>'}
+     </button>`).join('');
+  $('#movie-options').querySelectorAll('.opt').forEach(b=>b.onclick=()=>togglePick(+b.dataset.id));
+}
+function togglePick(id){
+  if(picks.has(id)) picks.delete(id);
+  else { const m=POPULAR.find(p=>p.movieId===id); picks.set(id,{title:m.title,rating:4.0}); }
+  renderOptions($('#movie-search').value); renderPicked(); syncGo();
+}
+function renderPicked(){
+  $('#pick-count').textContent = picks.size?`(${picks.size})`:'';
+  const box=$('#picked-list');
+  box.innerHTML = [...picks.entries()].map(([id,p])=>`
+    <div class="bg-ink-700 rounded-xl p-2.5">
+      <div class="flex justify-between items-center gap-2 mb-1">
+        <span class="text-xs font-medium truncate">${p.title}</span>
+        <button data-rm="${id}" class="text-slate-500 hover:text-accent-400 shrink-0">✕</button>
+      </div>
+      <div class="flex items-center gap-2">
+        <input type="range" min="0.5" max="5" step="0.5" value="${p.rating}" data-rate="${id}" class="flex-1">
+        <span class="text-gold text-xs w-9 text-right" data-lbl="${id}">${p.rating.toFixed(1)}★</span>
+      </div>
+    </div>`).join('');
+  box.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>togglePick(+b.dataset.rm));
+  box.querySelectorAll('[data-rate]').forEach(s=>s.oninput=e=>{
+    const id=+e.target.dataset.rate, v=+e.target.value;
+    picks.get(id).rating=v; box.querySelector(`[data-lbl="${id}"]`).textContent=v.toFixed(1)+'★';
+  });
+}
+function syncGo(){ $('#go').disabled = MODE==='coldstart' && picks.size===0; }
+
+// ───────── profile / trending rows ─────────
+async function loadProfile(){
+  if(MODE!=='existing') return;
+  const data = await api('/api/profile/'+$('#user').value);
+  window._profile = data.map(d=>({...d, rating:d.rating}));
+}
+
+// ───────── recommend ─────────
+async function run(){
+  const method=$('#method').value, n=+$('#n').value;
+  $('#hero-content').innerHTML = heroSkeleton();
+  $('#rows').innerHTML = rowSkeleton('Top picks');
+
+  const body={method,mode:MODE,n};
+  if(MODE==='existing') body.user_id=+$('#user').value;
+  else body.new_ratings=[...picks.entries()].map(([movieId,p])=>({movieId,rating:p.rating}));
+  if(MODE==='coldstart') $('#rate-pop').classList.add('hidden');
+
+  let recs=[]; try{ recs=await api('/api/recommend',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); }catch{}
+
+  if(!recs.length){
+    $('#hero-content').innerHTML = `<h2 class="font-display text-5xl text-white">No recommendations</h2>
+      <p class="text-slate-400">Try another model${MODE==='coldstart'?' or rate a few films':''}.</p>`;
+    $('#hero-bg').style.backgroundImage=''; $('#rows').innerHTML=''; return;
+  }
+
+  renderHero(recs[0], method);
+
+  // compose Netflix-style rows
+  const rows=[];
+  rows.push(rowHTML('main', `Top picks · ${method}`, recs));
+  if(MODE==='existing' && window._profile?.length)
+    rows.push(rowHTML('profile', `User ${$('#user').value} · favourites`, window._profile));
+  else if(MODE==='coldstart' && picks.size)
+    rows.push(rowHTML('rated', 'Films you rated',
+      [...picks.entries()].map(([id,p])=>{ const m=POPULAR.find(x=>x.movieId===id)||{}; return {title:p.title,genres:m.genres||[],poster:m.poster,rating:p.rating}; })));
+  rows.push(rowHTML('trend', 'Trending now', TRENDING));
+  $('#rows').innerHTML = rows.join('');
+  wireRails();
+}
+
+// ───────── hero ─────────
+function renderHero(m, method){
+  const bg=$('#hero-bg');
+  bg.style.backgroundImage = m.poster ? `url('${m.poster}')` : '';
+  bg.classList.toggle('poster-fallback', !m.poster);
+  $('#hero-content').innerHTML = `
+    <div class="flex items-center gap-2 text-xs uppercase tracking-[.2em] text-accent-400 font-semibold fade">
+      <span>★ Top pick</span><span class="text-slate-500">·</span><span class="text-slate-300">${method}</span>
+    </div>
+    <h2 class="font-display text-6xl sm:text-7xl text-white leading-[.92] fade">${m.title}</h2>
+    <div class="flex flex-wrap items-center gap-3 fade">
+      <span class="bg-gold text-black text-sm font-bold px-2.5 py-1 rounded-md">${m.score} <span class="font-medium opacity-70">${m.scoreLabel}</span></span>
+      <div class="flex flex-wrap gap-1.5">
+        ${m.genres.slice(0,4).map(g=>`<span class="text-xs px-2.5 py-1 rounded-full bg-white/10 border border-white/10">${g}</span>`).join('')}
+      </div>
+    </div>
+    ${m.why?.length?`<p class="text-sm text-slate-300 fade">✨ Because you like <span class="text-accent-400 font-medium">${m.why.join(', ')}</span></p>`:''}`;
+}
+
+// ───────── rows + cards ─────────
+function rowHTML(id, title, items){
+  return `<section class="row relative">
+    <h3 class="text-lg font-semibold mb-3 text-slate-100">${title}</h3>
+    <button class="arrow opacity-0 absolute left-0 top-12 z-20 h-[170px] w-10 bg-gradient-to-r from-ink-900/90 to-transparent grid place-items-center text-2xl" data-scroll="-1" data-rail="${id}">‹</button>
+    <button class="arrow opacity-0 absolute right-0 top-12 z-20 h-[170px] w-10 bg-gradient-to-l from-ink-900/90 to-transparent grid place-items-center text-2xl" data-scroll="1" data-rail="${id}">›</button>
+    <div id="rail-${id}" class="rail flex gap-3 overflow-x-auto pb-3 -mx-1 px-1">
+      ${items.map((m,i)=>card(m,i)).join('')}
+    </div>
+  </section>`;
+}
+function card(m,i){
+  const badge = m.score!=null
+    ? `<span class="bg-black/75 backdrop-blur text-gold text-[11px] font-bold px-1.5 py-0.5 rounded">${m.score} <span class="text-slate-400 font-normal">${m.scoreLabel||''}</span></span>`
+    : (m.rating!=null ? `<span class="bg-black/75 backdrop-blur text-gold text-[11px] px-1.5 py-0.5 rounded">${STARS(m.rating)}</span>` : '');
+  return `<article class="card fade shrink-0 w-[150px] sm:w-[160px]" style="animation-delay:${i*35}ms">
+    <div class="relative aspect-[2/3] rounded-xl overflow-hidden border border-white/5 ${m.poster?'':'poster-fallback'} grid place-items-center">
+      ${m.poster
+        ? `<img src="${m.poster}" loading="lazy" class="w-full h-full object-cover">`
+        : `<div class="text-center px-2"><div class="text-2xl mb-1 opacity-40">🎬</div><span class="text-xs font-semibold text-slate-200 leading-tight">${m.title}</span></div>`}
+      ${badge?`<div class="absolute top-1.5 right-1.5">${badge}</div>`:''}
+    </div>
+    <p class="text-xs font-medium mt-2 line-clamp-2 text-slate-200">${m.title}</p>
+    ${m.genres?.length?`<p class="text-[10px] text-slate-500 mt-0.5 truncate">${m.genres.slice(0,2).join(' · ')}</p>`:''}
+    ${m.why?.length?`<p class="text-[10px] text-accent-400 mt-0.5 truncate">✨ ${m.why.join(', ')}</p>`:''}
+  </article>`;
+}
+function wireRails(){
+  document.querySelectorAll('[data-scroll]').forEach(btn=>btn.onclick=()=>{
+    const rail=$('#rail-'+btn.dataset.rail);
+    rail.scrollBy({left:btn.dataset.scroll*rail.clientWidth*0.85, behavior:'smooth'});
+  });
+}
+
+// ───────── Insights tab ─────────
+if (window.Chart) { Chart.defaults.color='#94a3b8'; Chart.defaults.font.family='Inter'; }
+const RADAR_AXES=['Precision@10','NDCG@10','Coverage','Novelty','Diversity'];
+
+function setTab(tab){
+  TAB=tab;
+  document.querySelectorAll('.tab-btn').forEach(b=>{
+    const on=b.dataset.tab===tab;
+    b.classList.toggle('seg-active',on); b.classList.toggle('text-slate-400',!on);
+  });
+  $('#view-discover').classList.toggle('hidden', tab!=='discover');
+  $('#view-insights').classList.toggle('hidden', tab!=='insights');
+  if(tab==='insights') loadInsights();
+}
+
+async function loadInsights(){
+  if(!EDA){ EDA=await api('/api/eda'); renderEda(EDA); }
+  if(!METRICS){
+    $('#metrics-loading').classList.remove('hidden');
+    $('#metrics-body').classList.add('hidden');
+    try{ METRICS=await api('/api/metrics'); }catch{}
+    $('#metrics-loading').classList.add('hidden');
+  }
+  if(METRICS){ $('#metrics-body').classList.remove('hidden'); renderMetrics(); }
+}
+
+function mkChart(id, cfg){ if(CHARTS[id]) CHARTS[id].destroy(); CHARTS[id]=new Chart($('#'+id), cfg); }
+const GRID={ color:'rgba(255,255,255,.06)' };
+
+function renderEda(d){
+  const s=d.summary;
+  const cards=[
+    ['Users', s.users.toLocaleString()], ['Movies', s.movies.toLocaleString()],
+    ['Ratings', s.ratings.toLocaleString()], ['Sparsity', (s.sparsity*100).toFixed(1)+'%'],
+    ['Mean rating', s.meanRating.toFixed(2)+' ★'], ['User tags', s.tags.toLocaleString()],
+  ];
+  $('#eda-cards').innerHTML = cards.map(([k,v])=>`
+    <div class="bg-ink-800 border border-white/5 rounded-2xl p-4">
+      <p class="font-display text-3xl text-white leading-none">${v}</p>
+      <p class="text-xs text-slate-400 mt-1">${k}</p>
+    </div>`).join('');
+  $('#tail-note').textContent = `Half of all ratings go to just ${s.halfRatingsMovies} films (${(s.halfRatingsPct*100).toFixed(1)}% of the catalogue).`;
+
+  mkChart('chart-ratings',{ type:'bar',
+    data:{ labels:d.ratingDist.labels, datasets:[{ data:d.ratingDist.values, backgroundColor:'#4f74e5', borderRadius:4 }]},
+    options:{ aspectRatio:1.5, plugins:{legend:{display:false}}, scales:{x:{grid:{display:false}}, y:{grid:GRID}} }});
+  mkChart('chart-tail',{ type:'line',
+    data:{ labels:d.longTail.map((_,i)=>i), datasets:[{ data:d.longTail, borderColor:'#ff9f1c', backgroundColor:'rgba(255,159,28,.15)', fill:true, pointRadius:0, borderWidth:2, tension:.3 }]},
+    options:{ aspectRatio:1.5, plugins:{legend:{display:false}}, scales:{x:{display:false}, y:{grid:GRID}} }});
+  mkChart('chart-genres',{ type:'bar',
+    data:{ labels:d.genres.labels, datasets:[{ data:d.genres.values, backgroundColor:'#2ec4b6', borderRadius:4 }]},
+    options:{ indexAxis:'y', aspectRatio:1.2, plugins:{legend:{display:false}}, scales:{x:{grid:GRID}, y:{grid:{display:false}}} }});
+}
+
+function renderMetrics(){
+  const res=METRICS.results, names=Object.keys(res), chosen=$('#method').value;
+  $('#eval-sub').textContent = `Temporal split: ${METRICS.meta.train.toLocaleString()} train / ${METRICS.meta.test.toLocaleString()} test ratings, ${METRICS.meta.testUsers} users, top-${METRICS.meta.k}.`;
+
+  // min-max scale each axis across models -> shapes are comparable
+  const norm={};
+  RADAR_AXES.forEach(ax=>{
+    const vals=names.map(n=>res[n][ax]); const lo=Math.min(...vals), hi=Math.max(...vals);
+    norm[ax]=v=> hi>lo ? (v-lo)/(hi-lo) : 0.5;
+  });
+  const chosenVals=RADAR_AXES.map(ax=>norm[ax](res[chosen][ax]));
+  const avgVals=RADAR_AXES.map(ax=>names.reduce((s,n)=>s+norm[ax](res[n][ax]),0)/names.length);
+  $('#radar-sub').textContent = `${chosen} vs catalogue average`;
+
+  mkChart('chart-radar',{ type:'radar',
+    data:{ labels:RADAR_AXES, datasets:[
+      { label:'Catalogue avg', data:avgVals, borderColor:'rgba(148,163,184,.6)', backgroundColor:'rgba(148,163,184,.12)', borderWidth:1.5, pointRadius:2 },
+      { label:chosen, data:chosenVals, borderColor:'#e50914', backgroundColor:'rgba(229,9,20,.22)', borderWidth:2, pointBackgroundColor:'#ff3d47', pointRadius:3 },
+    ]},
+    options:{ aspectRatio:1, plugins:{legend:{position:'bottom', labels:{boxWidth:12, font:{size:11}}}},
+      scales:{ r:{ min:0, max:1, grid:GRID, angleLines:GRID, ticks:{display:false, stepSize:.25}, pointLabels:{font:{size:11}} } } }});
+
+  const cols=['Precision@10','Recall@10','NDCG@10','MRR','Coverage','Novelty','Diversity','RMSE','MAE'];
+  const fmt=(v,c)=> v==null?'—' : (c==='Novelty'?v.toFixed(2):v.toFixed(3));
+  $('#metrics-table').innerHTML = `
+    <thead><tr class="text-left text-slate-400 border-b border-white/10">
+      <th class="py-2 pr-3 font-medium">Model</th>${cols.map(c=>`<th class="py-2 px-2 font-medium text-right whitespace-nowrap">${c}</th>`).join('')}
+    </tr></thead>
+    <tbody>${names.map(n=>{
+      const hot=n===chosen;
+      return `<tr class="border-b border-white/5 ${hot?'bg-accent/10':''}">
+        <td class="py-2 pr-3 ${hot?'text-accent-400 font-semibold':'text-slate-200'} whitespace-nowrap">${n}</td>
+        ${cols.map(c=>`<td class="py-2 px-2 text-right tabular-nums ${hot?'text-white':'text-slate-300'}">${fmt(res[n][c],c)}</td>`).join('')}
+      </tr>`; }).join('')}</tbody>`;
+}
+
+// ───────── skeletons ─────────
+const heroSkeleton = ()=>`
+  <div class="shimmer h-4 w-40 rounded mb-2"></div>
+  <div class="shimmer h-16 w-2/3 rounded mb-3"></div>
+  <div class="shimmer h-6 w-48 rounded"></div>`;
+const rowSkeleton = (t)=>`<section><h3 class="text-lg font-semibold mb-3">${t}</h3>
+  <div class="flex gap-3">${Array.from({length:8},()=>'<div class="shrink-0 w-[150px]"><div class="shimmer aspect-[2/3] rounded-xl"></div></div>').join('')}</div></section>`;
+
+init();
+</script>
+</body>
+</html>

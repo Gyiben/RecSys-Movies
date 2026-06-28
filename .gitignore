@@ -1,0 +1,14 @@
+# Dataset is downloadable, not committed
+data/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Runtime artifacts
+.poster_cache.json
+.eval_cache.json
+*.log
+.playwright-mcp/
