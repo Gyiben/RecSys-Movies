@@ -107,7 +107,7 @@
         </button>
         <!-- popover -->
         <div id="rate-pop" class="hidden absolute right-0 mt-2 w-80 glass border border-white/10 rounded-2xl p-4 shadow-2xl space-y-3">
-          <p class="text-xs text-slate-400 leading-relaxed">Rate a few films you've seen. We build a brand-new profile on the fly — the cold-start problem.</p>
+          <p class="text-xs text-slate-400 leading-relaxed">Rate a few films you've seen. We build a brand-new profile on the fly with content-based filtering — the cold-start problem.</p>
           <input id="movie-search" type="text" placeholder="Search popular films…" class="w-full bg-ink-700 border border-white/10 rounded-lg px-3 py-2 text-sm focus:border-accent">
           <div id="movie-options" class="max-h-40 overflow-y-auto space-y-0.5 pr-1"></div>
           <div id="picked-list" class="space-y-2 max-h-44 overflow-y-auto"></div>
@@ -247,6 +247,10 @@ function setMode(mode){
   });
   $('#user-wrap').classList.toggle('hidden', mode!=='existing');
   $('#rate-wrap').classList.toggle('hidden', mode!=='coldstart');
+  // cold start always uses content-based (the only model cheap enough to run live)
+  const ms=$('#method');
+  if(mode==='coldstart'){ ms.value='Content-based'; ms.disabled=true; }
+  else { ms.disabled=false; }
   if(mode==='existing'){ loadProfile(); run(); }
   syncGo();
 }

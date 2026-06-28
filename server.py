@@ -8,8 +8,7 @@ Run:  uv run uvicorn server:app --reload
 Then: http://127.0.0.1:8000
 """
 
-import collections
-import time
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -40,44 +39,49 @@ app = FastAPI(title="Movie Recommender")
 ratings, movies, tags = load_data()
 posters = PosterService()
 
-# LRU cache of fitted models. Each CF/SVD model pins a full rating matrix, so on a
-# 512 MB box we keep only the few most-recent rather than all six at once.
-_models = collections.OrderedDict()
-_MODEL_CACHE = 2
+# Existing-user recommendations are precomputed offline (precompute.py) so the
+# server never fits the heavy CF/SVD models at runtime — that is what keeps it
+# well under the 512 MB hosting limit. Cold start is the one case that must run
+# live, and it only ever uses the lightweight Content-based model.
+PRECOMP = json.loads((BASE / "precomputed_recs.json").read_text())["recs"]
+MOVIE_INFO = {
+    int(r.movieId): {
+        "title": r.title,
+        "genres": [g for g in r.genres.split("|") if g != "(no genres listed)"],
+    }
+    for r in movies.itertuples()
+}
+
+_content_model = None
 
 
-def get_model(method):
-    """Fit and cache a model on the full dataset (existing-user mode)."""
-    if method in _models:
-        _models.move_to_end(method)
-        return _models[method]
-    model = all_recommenders()[method]().fit(ratings, movies, tags)
-    _models[method] = model
-    while len(_models) > _MODEL_CACHE:
-        _models.popitem(last=False)          # evict least-recently-used
-    return model
+def content_model():
+    """Lazily fit (once) the only model the server needs to run live."""
+    global _content_model
+    if _content_model is None:
+        from src.recommenders import ContentBased
+        _content_model = ContentBased().fit(ratings, movies, tags)
+    return _content_model
 
 
-def enrich(recs, method, model=None, user_id=None):
-    """Turn a recommendations DataFrame into a JSON-ready list with posters."""
-    if recs is None or recs.empty:
+def enrich(items, method, user_id=None):
+    """items: [{movieId, score, why?}] -> JSON-ready cards with title + poster."""
+    if not items:
         return []
-    pmap = posters.posters_for(recs.movieId.tolist())
+    pmap = posters.posters_for([it["movieId"] for it in items])
     out = []
-    for _, row in recs.iterrows():
-        mid = int(row.movieId)
-        item = {
+    for it in items:
+        mid = it["movieId"]
+        info = MOVIE_INFO.get(mid, {"title": str(mid), "genres": []})
+        out.append({
             "movieId": mid,
-            "title": row.title,
-            "genres": [g for g in row.genres.split("|") if g != "(no genres listed)"],
-            "score": round(float(row.score), 2),
+            "title": info["title"],
+            "genres": info["genres"],
+            "score": round(float(it["score"]), 2),
             "scoreLabel": SCORE_HELP[method],
             "poster": pmap.get(mid),
-            "why": [],
-        }
-        if method == "Content-based" and model is not None and user_id is not None:
-            item["why"] = model.explain(user_id, mid) or []
-        out.append(item)
+            "why": it.get("why", []),
+        })
     return out
 
 
@@ -146,27 +150,29 @@ def recommend(req: RecRequest):
     if req.mode == "existing":
         if req.user_id is None:
             return []
-        model = get_model(req.method)
-        recs = model.recommend(req.user_id, n=req.n)
-        return enrich(recs, req.method, model, req.user_id)
+        method = req.method if req.method in PRECOMP else next(iter(PRECOMP))
+        items = PRECOMP.get(method, {}).get(str(req.user_id), [])[:req.n]
+        return enrich(items, method, req.user_id)
 
-    # cold start: append a brand-new user's ratings and fit fresh (uncached)
+    # cold start: a brand-new user's ratings -> content-based profile, computed
+    # live. CF/SVD cold start would need a full refit the 512 MB box can't
+    # afford, so cold start always uses content-based filtering.
     nr = pd.DataFrame(req.new_ratings or [])
     if nr.empty:
         return []
     new_uid = int(ratings.userId.max()) + 1
-    rows = pd.DataFrame(
-        {"userId": new_uid, "movieId": nr.movieId,
-         "rating": nr.rating, "timestamp": int(time.time())}
-    )
-    full = pd.concat([ratings, rows], ignore_index=True)
-    model = all_recommenders()[req.method]().fit(full, movies, tags)
-    if req.method == "Content-based":   # profile comes straight from your ratings
-        recs = model.recommend(new_uid, n=req.n,
-                               user_ratings=nr.assign(userId=new_uid))
-    else:
-        recs = model.recommend(new_uid, n=req.n)
-    return enrich(recs, req.method, model, new_uid)
+    ur = nr.assign(userId=new_uid)
+    model = content_model()
+    recs = model.recommend(new_uid, n=req.n, user_ratings=ur)
+    items = []
+    for _, row in recs.iterrows():
+        mid = int(row.movieId)
+        d = {"movieId": mid, "score": round(float(row.score), 2)}
+        why = model.explain(new_uid, mid, user_ratings=ur)
+        if why:
+            d["why"] = why
+        items.append(d)
+    return enrich(items, "Content-based", new_uid)
 
 
 # --------------------------------------------------------------------------- #

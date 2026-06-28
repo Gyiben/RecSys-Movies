@@ -53,6 +53,15 @@ falls back to styled text tiles:
 export TMDB_API_KEY=your_key
 ```
 
+To keep the server light (it fits a 512 MB host), existing-user recommendations
+are served from a committed `precomputed_recs.json`; only the lightweight
+content-based model runs live, for cold start. Rebuild it whenever the data or
+algorithms change:
+
+```bash
+uv run python precompute.py
+```
+
 **Notebooks:**
 
 - `notebooks/01_eda.ipynb` — exploratory data analysis
@@ -63,7 +72,8 @@ Evaluation fits on train only; the app uses all ratings so professors can try an
 ## Project layout
 
 ```
-server.py               FastAPI backend (thin layer over recommenders)
+server.py               FastAPI backend (serves precomputed recs + live cold start)
+precompute.py           build step: dumps all existing-user recs to JSON
 static/index.html       single-page dark cinematic UI
 render.yaml             Render deployment blueprint
 src/data.py             load MovieLens, build matrix, temporal split

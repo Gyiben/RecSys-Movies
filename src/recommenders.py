@@ -263,9 +263,13 @@ class ContentBased(Recommender):
         scores = pd.Series(sims, index=self.movie_ids)
         return self._format(scores, user_id, n)
 
-    def explain(self, user_id, movie_id, top=3):
-        """Top shared feature words between the movie and the user's profile."""
-        profile = self._profile(user_id)
+    def explain(self, user_id, movie_id, top=3, user_ratings=None):
+        """Top shared feature words between the movie and the user's profile.
+
+        ``user_ratings`` lets a brand-new (cold-start) user be explained from the
+        ratings they just entered, since they have no stored history yet.
+        """
+        profile = self._profile(user_id, user_ratings)
         if profile is None or movie_id not in self.row_of:
             return []
         terms = np.asarray(self.vec.get_feature_names_out())
